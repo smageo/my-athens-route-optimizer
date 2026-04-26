@@ -1,9 +1,3 @@
-"""
-Βελτιστοποιητής Διαδρομής Αθήνας — Streamlit Web App
-Εγκατάσταση: pip install streamlit folium geopy streamlit-folium
-Εκτέλεση:    streamlit run app.py
-"""
-
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
