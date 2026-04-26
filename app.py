@@ -1,9 +1,3 @@
-"""
-Βελτιστοποιητής Διαδρομής Αθήνας — Streamlit Web App
-pip install streamlit folium geopy streamlit-folium
-streamlit run app.py
-"""
-
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
@@ -18,10 +12,11 @@ st.set_page_config(
     layout="wide",
 )
 
-# Session state — πρώτο από όλα
+# Session state
 for key, val in [
     ('result', None), ('all_feasible', None),
     ('req_times', {}), ('speed_used', 30), ('tol_used', 5),
+    ('start_used', ''), ('end_used', ''),
 ]:
     if key not in st.session_state:
         st.session_state[key] = val
@@ -93,7 +88,7 @@ def evaluate_route(path, start_dt, req_times, speed, tol_min=5):
                 elif arr < tgt:
                     wait_total += tgt - arr; arr = tgt; cur = tgt
             arrivals[place] = arr
-            if not is_last: cur = arr + STOP_DURATION
+            # Δεν προσθέτουμε STOP_DURATION στην αφετηρία (δεν είναι στάση)
             continue
 
         prev = path[i - 1]
@@ -112,7 +107,9 @@ def evaluate_route(path, start_dt, req_times, speed, tol_min=5):
         else:
             arrivals[place] = arr; cur = arr
 
-        if not is_last: cur += STOP_DURATION
+        # STOP_DURATION μόνο στις ενδιάμεσες (όχι στην τελευταία)
+        if not is_last:
+            cur += STOP_DURATION
 
     return {
         'path': path, 'feasible': feasible, 'arrivals': arrivals,
@@ -153,40 +150,42 @@ def optimize(start, end, inter, start_dt, req_times, speed, tol_min=5):
 with st.sidebar:
     st.title("🗺️ Ρυθμίσεις")
 
-    st.subheader("🟢 Αφετηρία")
-    start_loc      = st.selectbox("Αφετηρία", SORTED_LOCS, index=SORTED_LOCS.index("Σύνταγμα"), key="start")
-    use_start_time = st.checkbox("Ώρα έναρξης;", key="use_st")
-    start_time     = st.time_input("Ώρα έναρξης", value=dt_time(9, 0), key="st_time") if use_start_time else None
+    st.subheader("🏠 Αφετηρία")
+    st.caption("Από πού ξεκινάς (π.χ. σπίτι)")
+    start_loc      = st.selectbox("Περιοχή αφετηρίας", SORTED_LOCS, index=SORTED_LOCS.index("Κηφισιά"), key="start")
+    use_start_time = st.checkbox("Ορισμός ώρας αναχώρησης", key="use_st")
+    start_time     = st.time_input("Ώρα αναχώρησης", value=dt_time(9, 0), key="st_time") if use_start_time else None
 
     st.divider()
 
-    st.subheader("🔴 Τερματισμός")
-    end_loc      = st.selectbox("Τερματισμός", SORTED_LOCS, index=SORTED_LOCS.index("Πειραιάς"), key="end")
-    use_end_time = st.checkbox("Ώρα άφιξης στον τερματισμό;", key="use_et")
-    end_time     = st.time_input("Ώρα τερματισμού", value=dt_time(17, 0), key="et_time") if use_end_time else None
+    st.subheader("🏁 Τερματισμός")
+    st.caption("Πού θέλεις να καταλήξεις (π.χ. σπίτι πάλι)")
+    # Επιτρέπουμε ίδια αφετηρία/τερματισμός
+    end_loc      = st.selectbox("Περιοχή τερματισμού", SORTED_LOCS, index=SORTED_LOCS.index("Κηφισιά"), key="end")
+    use_end_time = st.checkbox("Ορισμός ώρας επιστροφής", key="use_et")
+    end_time     = st.time_input("Ώρα επιστροφής", value=dt_time(17, 0), key="et_time") if use_end_time else None
 
     st.divider()
 
     st.subheader("🚗 Παράμετροι")
-    speed_kmh = st.slider("Ταχύτητα (km/h)", 10, 120, 30, 5)
+    speed_kmh = st.slider("Ταχύτητα (km/h)", 10, 120, 40, 5)
     tol_min   = st.slider("Ανοχή ώρας (λεπτά)", 0, 30, 5, 1)
 
     st.divider()
 
-    st.subheader("🔵 Ενδιάμεσες Στάσεις")
-    num_stops = st.number_input("Πλήθος στάσεων", 0, 12, 2, 1)
+    st.subheader("📍 Στάσεις")
+    st.caption("Οι περιοχές που θέλεις να επισκεφτείς")
+    num_stops = st.number_input("Πλήθος στάσεων", 1, 12, 3, 1)
 
     intermediate_stops = []
+    # Εξαιρούμε μόνο ήδη επιλεγμένες στάσεις (ΟΧΙ αφετηρία/τερματισμό)
     for i in range(int(num_stops)):
         st.markdown(f"**Στάση #{i+1}**")
-        used  = {s['loc'] for s in intermediate_stops} | {start_loc, end_loc}
+        used  = {s['loc'] for s in intermediate_stops}
         avail = [l for l in SORTED_LOCS if l not in used]
-        if not avail:
-            st.warning("Δεν υπάρχουν άλλες τοποθεσίες.")
-            break
         loc   = st.selectbox("Τοποθεσία", avail, key=f"stop_{i}")
-        use_t = st.checkbox("Συγκεκριμένη ώρα;", key=f"use_t_{i}")
-        req_t = st.time_input("Ώρα", value=dt_time(min(10+i, 23), 0), key=f"t_{i}") if use_t else None
+        use_t = st.checkbox("Συγκεκριμένη ώρα άφιξης;", key=f"use_t_{i}")
+        req_t = st.time_input("Ώρα άφιξης", value=dt_time(min(10+i, 23), 0), key=f"t_{i}") if use_t else None
         intermediate_stops.append({'loc': loc, 'req_time': req_t})
 
     st.divider()
@@ -194,35 +193,35 @@ with st.sidebar:
     pressed = st.button("🔍 Υπολόγισε Διαδρομή", use_container_width=True, type="primary")
 
     if pressed:
-        all_locs = [start_loc] + [s['loc'] for s in intermediate_stops] + [end_loc]
-        if len(all_locs) != len(set(all_locs)):
-            st.error("Υπάρχουν διπλότυπες τοποθεσίες!")
+        # Έλεγχος διπλότυπων μόνο ανάμεσα στις ενδιάμεσες στάσεις
+        stop_locs = [s['loc'] for s in intermediate_stops]
+        if len(stop_locs) != len(set(stop_locs)):
+            st.error("Υπάρχουν διπλότυπες στάσεις!")
         else:
             now      = datetime.now()
             ref      = now.date()
             start_dt = datetime.combine(ref, start_time) if start_time else now
 
             req_times = {}
-            if use_start_time and start_time:
-                req_times[start_loc] = datetime.combine(ref, start_time)
             for s in intermediate_stops:
                 if s['req_time']:
                     req_times[s['loc']] = datetime.combine(ref, s['req_time'])
             if use_end_time and end_time:
                 req_times[end_loc] = datetime.combine(ref, end_time)
 
-            with st.spinner("Υπολογισμός..."):
+            with st.spinner("⏳ Υπολογισμός βέλτιστης διαδρομής..."):
                 res, feas = optimize(
-                    start_loc, end_loc,
-                    [s['loc'] for s in intermediate_stops],
+                    start_loc, end_loc, stop_locs,
                     start_dt, req_times, speed_kmh, tol_min
                 )
 
-            st.session_state['result']      = res
+            st.session_state['result']       = res
             st.session_state['all_feasible'] = feas
-            st.session_state['req_times']   = req_times
-            st.session_state['speed_used']  = speed_kmh
-            st.session_state['tol_used']    = tol_min
+            st.session_state['req_times']    = req_times
+            st.session_state['speed_used']   = speed_kmh
+            st.session_state['tol_used']     = tol_min
+            st.session_state['start_used']   = start_loc
+            st.session_state['end_used']     = end_loc
 
 
 # ── Κύριο περιεχόμενο ──
@@ -232,12 +231,13 @@ if st.session_state['result'] is None:
     st.info("👈 Ρύθμισε τις παραμέτρους στο πλευρικό μενού και πάτα **Υπολόγισε Διαδρομή**.")
     st.stop()
 
-# Από εδώ και κάτω έχουμε σίγουρα αποτέλεσμα
-result      = st.session_state['result']
+result       = st.session_state['result']
 all_feasible = st.session_state['all_feasible']
-req_times   = st.session_state['req_times']
-speed_used  = st.session_state['speed_used']
-tol_used    = st.session_state['tol_used']
+req_times    = st.session_state['req_times']
+speed_used   = st.session_state['speed_used']
+tol_used     = st.session_state['tol_used']
+start_used   = st.session_state['start_used']
+end_used     = st.session_state['end_used']
 
 if all_feasible:
     st.success("✅ Βρέθηκε διαδρομή που ικανοποιεί **όλες** τις καθορισμένες ώρες!")
@@ -250,10 +250,10 @@ wait_min  = int(result['wait'].total_seconds() / 60)
 late_min  = int(result['lateness'].total_seconds() / 60)
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("📏 Απόσταση",      f"{result['dist_km']:.1f} km")
-c2.metric("⏱️ Συνολικός χρόνος", f"{total_min} λεπτά")
-c3.metric("⏳ Αναμονή",       f"{wait_min} λεπτά")
-c4.metric("🔴 Καθυστέρηση",   f"{late_min} λεπτά")
+c1.metric("📏 Απόσταση",          f"{result['dist_km']:.1f} km")
+c2.metric("⏱️ Συνολικός χρόνος",  f"{total_min} λεπτά")
+c3.metric("⏳ Αναμονή",           f"{wait_min} λεπτά")
+c4.metric("🔴 Καθυστέρηση",       f"{late_min} λεπτά")
 
 st.divider()
 
@@ -261,22 +261,23 @@ tab1, tab2 = st.tabs(["📋 Χρονοδιάγραμμα", "🗺️ Χάρτης
 
 with tab1:
     path = result['path']
-    for i, place in enumerate(path):
+
+    # ── Αφετηρία ──
+    start_arr = result['arrivals'].get(path[0])
+    start_s   = start_arr.strftime('%H:%M') if start_arr else '—'
+    st.markdown(f"### 🏠 Αναχώρηση από **{start_used}**")
+    st.write(f"**Ώρα αναχώρησης:** {start_s}")
+    st.divider()
+
+    # ── Ενδιάμεσες στάσεις (όλες εκτός πρώτης και τελευταίας) ──
+    for i in range(1, len(path) - 1):
+        place = path[i]
         arr   = result['arrivals'].get(place)
         arr_s = arr.strftime('%H:%M') if arr else '—'
         req   = req_times.get(place)
         req_s = req.strftime('%H:%M') if req else '—'
 
-        # Εικονίδιο
-        if i == 0:
-            icon = "🟢"
-        elif i == len(path) - 1:
-            icon = "🔴"
-        else:
-            icon = "🔵"
-
-        # Τίτλος στάσης
-        st.markdown(f"### {icon} {place}")
+        st.markdown(f"### 📍 Στάση {i}: **{place}**")
 
         col_a, col_b = st.columns(2)
         col_a.write(f"**Άφιξη:** {arr_s}")
@@ -289,32 +290,62 @@ with tab1:
             else:
                 col_b.write(f"**Απαιτούμενη:** {req_s} ✅ εντός")
 
-        if i > 0:
-            prev = path[i-1]
-            d    = geodesic(locations[prev], locations[place]).km
-            t_m  = int(km_to_td(d, speed_used).total_seconds() / 60)
-            st.caption(f"↳ από {prev}: {d:.2f} km · {t_m} λεπτά οδήγησης")
+        prev = path[i-1]
+        d    = geodesic(locations[prev], locations[place]).km
+        t_m  = int(km_to_td(d, speed_used).total_seconds() / 60)
+        st.caption(f"↳ από {prev}: {d:.2f} km · {t_m} λεπτά οδήγησης")
 
-        if i < len(path) - 1 and arr:
+        if arr:
             dep = (arr + STOP_DURATION).strftime('%H:%M')
             st.caption(f"🕒 Στάση 20 λεπτά → Αναχώρηση: {dep}")
 
-        if i < len(path) - 1:
-            st.divider()
+        st.divider()
+
+    # ── Τερματισμός ──
+    end_arr = result['arrivals'].get(path[-1])
+    end_s   = end_arr.strftime('%H:%M') if end_arr else '—'
+    prev    = path[-2]
+    d_end   = geodesic(locations[prev], locations[path[-1]]).km
+    t_end   = int(km_to_td(d_end, speed_used).total_seconds() / 60)
+    req_end = req_times.get(path[-1])
+    req_end_s = req_end.strftime('%H:%M') if req_end else '—'
+
+    st.markdown(f"### 🏁 Επιστροφή στο **{end_used}**")
+    col_a, col_b = st.columns(2)
+    col_a.write(f"**Άφιξη:** {end_s}")
+    if req_end:
+        diff = (end_arr - req_end).total_seconds() / 60 if end_arr else 0
+        if diff > tol_used:
+            col_b.write(f"**Απαιτούμενη:** {req_end_s} ⚠️ +{diff:.0f}' αργά")
+        else:
+            col_b.write(f"**Απαιτούμενη:** {req_end_s} ✅")
+    st.caption(f"↳ από {prev}: {d_end:.2f} km · {t_end} λεπτά οδήγησης")
 
 with tab2:
-    m = folium.Map(location=locations[result['path'][0]], zoom_start=11, tiles="CartoDB positron")
-    for i, place in enumerate(result['path']):
+    m = folium.Map(location=locations[path[0]], zoom_start=11, tiles="CartoDB positron")
+
+    for i, place in enumerate(path):
         arr   = result['arrivals'].get(place)
         arr_s = arr.strftime('%H:%M') if arr else '—'
         req   = req_times.get(place)
         req_s = req.strftime('%H:%M') if req else '—'
-        color = 'pink' if i == 0 else ('red' if i == len(result['path'])-1 else ('green' if req else 'blue'))
+
+        if i == 0:
+            color = 'green'
+            label = f"🏠 Αναχώρηση: {arr_s}"
+        elif i == len(path) - 1:
+            color = 'red'
+            label = f"🏁 Επιστροφή: {arr_s}"
+        else:
+            color = 'blue'
+            label = f"📍 Στάση {i}: {arr_s}"
+
         folium.Marker(
             locations[place],
-            popup=f"<b>{i}. {place}</b><br>Άφιξη: {arr_s}<br>Απαιτούμενη: {req_s}",
+            popup=f"<b>{place}</b><br>{label}<br>{'Απαιτούμενη: ' + req_s if req else ''}",
             tooltip=f"{i}. {place} ({arr_s})",
             icon=folium.Icon(color=color)
         ).add_to(m)
-    folium.PolyLine([locations[p] for p in result['path']], color="#2563eb", weight=5).add_to(m)
+
+    folium.PolyLine([locations[p] for p in path], color="#2563eb", weight=5).add_to(m)
     st_folium(m, use_container_width=True, height=520)
