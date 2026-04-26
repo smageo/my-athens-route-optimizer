@@ -16,7 +16,7 @@ st.set_page_config(
 for key, val in [
     ('result', None), ('all_feasible', None),
     ('req_times', {}), ('speed_used', 30), ('tol_used', 5),
-    ('start_used', ''), ('end_used', ''),
+    ('start_used', ''), ('end_used', ''), ('start_dt_used', None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = val
@@ -222,6 +222,7 @@ with st.sidebar:
             st.session_state['tol_used']     = tol_min
             st.session_state['start_used']   = start_loc
             st.session_state['end_used']     = end_loc
+            st.session_state['start_dt_used'] = start_dt
 
 
 # ── Κύριο περιεχόμενο ──
@@ -238,6 +239,7 @@ speed_used   = st.session_state['speed_used']
 tol_used     = st.session_state['tol_used']
 start_used   = st.session_state['start_used']
 end_used     = st.session_state['end_used']
+start_dt_used = st.session_state['start_dt_used']
 
 if all_feasible:
     st.success("✅ Βρέθηκε διαδρομή που ικανοποιεί **όλες** τις καθορισμένες ώρες!")
@@ -263,8 +265,8 @@ with tab1:
     path = result['path']
 
     # ── Αφετηρία ──
-    start_arr = result['arrivals'].get(path[0])
-    start_s   = start_arr.strftime('%H:%M') if start_arr else '—'
+    # Χρησιμοποιούμε την start_dt που έδωσε ο χρήστης, ΟΧΙ το arrivals[path[0]]
+    start_s = start_dt_used.strftime('%H:%M') if start_dt_used else '—'
     st.markdown(f"### 🏠 Αναχώρηση από **{start_used}**")
     st.write(f"**Ώρα αναχώρησης:** {start_s}")
     st.divider()
